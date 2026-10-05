@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Forms fixture</title></head>
+<body>
+  <h1>Forms</h1>
+  <form id="contact" action="/submitted.html" method="get">
+    <label for="name">Your name</label><input id="name" name="name" type="text">
+    <label for="msg">Message</label><textarea id="msg" name="message"></textarea>
+    <button type="submit">Send message</button>
+  </form>
+  <form id="login" action="/submitted.html" method="get">
+    <label for="user">Username</label><input id="user" name="username">
+    <label for="pw">Password</label><input id="pw" name="password" type="password">
+    <button type="submit">Log in</button>
+  </form>
+  <form id="checkout" action="/submitted.html" method="get">
+    <label for="cc">Card number</label><input id="cc" name="cardnumber" autocomplete="cc-number">
+    <button type="submit">Pay now</button>
+  </form>
+  <button id="delete" type="button" onclick="document.getElementById('status').textContent='deleted'">Delete account</button>
+  <input type="checkbox" id="agree"><label for="agree">I agree</label>
+  <button type="button" disabled>Disabled action</button>
+  <p id="status">idle</p>
+</body></html>

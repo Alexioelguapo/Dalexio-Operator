@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Dynamic fixture</title></head>
+<body>
+  <h1>Dynamic</h1>
+  <button type="button" id="add" onclick="const a=document.createElement('a');a.href='/en.html';a.textContent='Added link '+document.querySelectorAll('a').length;document.body.prepend(a)">Add link</button>
+  <a href="/en.html">Original link</a>
+  <a href="/fr.html" target="_blank">Open French in new tab</a>
+  <div id="many"></div>
+  <script>
+    const many = document.getElementById('many');
+    for (let i = 0; i < 150; i++) { const a = document.createElement('a'); a.href = '/en.html#' + i; a.textContent = 'Bulk link ' + i; many.appendChild(a); many.appendChild(document.createTextNode(' ')); }
+    document.body.appendChild(Object.assign(document.createElement('p'), { textContent: 'x'.repeat(5000) }));
+  </script>
+</body></html>

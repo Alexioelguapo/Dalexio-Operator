@@ -1,0 +1,25 @@
+{
+  "name": "dalexio-operator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alexioelguapo/Dalexio-Operator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Alexioelguapo/Dalexio-Operator/issues"
+  },
+  "homepage": "https://github.com/Alexioelguapo/Dalexio-Operator#readme",
+  "dependencies": {
+    "openai": "^7.28.0",
+    "playwright": "^1.63.0"
+  }
+}

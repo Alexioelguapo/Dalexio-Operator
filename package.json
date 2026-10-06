@@ -1,0 +1,27 @@
+{
+  "name": "dalexio-operator",
+  "version": "0.1.0",
+  "description": "Provider-neutral, safety-gated browser agent foundation",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "dalexio-operator": "bin/operator.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.test.js\"",
+    "smoke": "node tests/smoke/wikipedia.smoke.js",
+    "check": "node scripts/check-syntax.js",
+    "operator": "node bin/operator.js"
+  },
+  "dependencies": {
+    "playwright": "1.56.1"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  }
+}

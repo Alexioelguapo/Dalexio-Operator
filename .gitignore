@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Secrets and credentials — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+secrets/
+
+# Run state: audit logs, screenshots, temporary task state
+.dalexio/
+screenshots/
+*.png
+!docs/**/*.png
+
+# Browser session data (cookies, storage, profiles)
+browser-data/
+user-data-dir/
+storage-state*.json
+playwright/.auth/
+
+# Test / tooling output
+test-results/
+coverage/
+*.log
+.DS_Store

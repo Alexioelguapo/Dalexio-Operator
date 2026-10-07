@@ -2,6 +2,7 @@
 // Command-line entry point:
 //   npm run operator -- "Open English Wikipedia"
 //   npm run operator -- --planner claude --start-url https://example.com "Find the contact page"
+//   npm run operator -- --planner claude-code,mock "Open English Wikipedia"
 
 import { parseArgs } from 'node:util';
 import { existsSync } from 'node:fs';

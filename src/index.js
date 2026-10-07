@@ -5,6 +5,7 @@ export { ACTIONS, ACTION_SPECS, FORBIDDEN_ACTIONS, LIMITS, validateAction, valid
 export { Planner, PlannerError, assertPlanner } from './agents/planner.js';
 export { MockPlanner, ScriptedPlanner } from './agents/mock-planner.js';
 export { ClaudePlanner, DEFAULT_CLAUDE_MODEL } from './agents/claude-planner.js';
+export { ClaudeCodePlanner } from './agents/claude-code-planner.js';
 export { OpenAICompatiblePlanner, OpenAIPlanner, OpenRouterPlanner } from './agents/openai-planner.js';
 export { createPlanner, registerPlanner, availablePlanners, RouterPlanner } from './agents/router.js';
 export { SYSTEM_PROMPT, renderContext, renderObservation, actionToolDefinitions } from './agents/prompt.js';

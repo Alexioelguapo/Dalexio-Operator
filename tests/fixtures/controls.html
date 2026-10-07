@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Controls fixture</title>
+<style>.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}</style></head>
+<body>
+  <h1>Compose a post</h1>
+  <form id="compose" action="/upload" method="post" enctype="multipart/form-data">
+    <label for="account">Account</label>
+    <select id="account" name="account">
+      <option value="">Choose…</option>
+      <option value="mb">Mixed Beanz</option>
+      <option value="ac">AI Carty</option>
+      <option value="old" disabled>Archived brand</option>
+    </select>
+    <label for="country">Country</label>
+    <select id="country" name="country"></select>
+    <label for="caption">Caption</label><textarea id="caption" name="caption"></textarea>
+    <div id="rich" contenteditable="true" aria-label="Rich caption"></div>
+    <label for="day">Publish date</label><input id="day" name="day" type="date">
+    <label for="at">Publish time</label><input id="at" name="at" type="time">
+    <input type="checkbox" id="notify" name="notify"><label for="notify">Notify followers</label>
+    <input type="checkbox" id="terms" name="terms"><label for="terms">I agree to the terms</label>
+    <fieldset><legend>Visibility</legend>
+      <input type="radio" id="v-public" name="vis" value="public" checked><label for="v-public">Public</label>
+      <input type="radio" id="v-private" name="vis" value="private"><label for="v-private">Private</label>
+    </fieldset>
+    <div role="switch" aria-checked="false" tabindex="0" aria-label="Auto-crop"
+         onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked') === 'true' ? 'false' : 'true')">Auto-crop</div>
+    <label for="media">Media</label><input id="media" name="media" type="file" class="visually-hidden" accept="image/*,video/*">
+    <label for="doc" style="display:none">Hidden doc</label><input id="doc" name="doc" type="file" style="display:none">
+    <button type="button">Preview</button>
+    <button type="submit">Publish</button>
+  </form>
+  <p><a href="/files/report.csv">Download report</a> · <a href="/files/evil">Download tool</a> ·
+     <a href="/files/logo">Get logo</a> · <a href="/files/hidden">Get config</a> · <a href="/en.html">Not a download</a></p>
+  <label for="pw">Password</label><input id="pw" name="password" type="password" value="hunter2">
+  <script>
+    const c = document.getElementById('country');
+    for (let i = 0; i < 30; i++) c.add(new Option(`Country ${i}`, `c${i}`));
+    c.add(new Option('Zimbabwe', 'zw'));
+  </script>
+</body></html>

@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Swap fixture</title></head>
+<body>
+  <h1>Settings</h1>
+  <!-- After the first observation, the harmless button turns into a destructive one. -->
+  <button id="b" type="button" onclick="document.getElementById('s').textContent='clicked: ' + this.textContent">Save draft</button>
+  <p id="s">idle</p>
+  <script>window.swap = () => { document.getElementById('b').textContent = 'Delete account'; };</script>
+</body></html>

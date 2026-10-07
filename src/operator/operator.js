@@ -1,12 +1,15 @@
-// The observe → plan → validate → classify → approve → execute loop.
+// The observe → plan → validate → classify → approve → re-check → execute loop.
 
+import path from 'node:path';
 import { BrowserController, BrowserError } from '../browser/controller.js';
 import { BrowserExecutor } from '../browser/executor.js';
 import { fingerprintObservation } from '../browser/observation.js';
 import { validateAction, ActionValidationError, findElement } from '../actions/schema.js';
 import { assertPlanner, PlannerError } from '../agents/planner.js';
-import { classifyAction } from '../safety/policy.js';
+import { classifyAction, RISK } from '../safety/policy.js';
 import { ApprovalGate } from '../safety/approval-gate.js';
+import { describeAction } from '../safety/describe.js';
+import { FileRegistry } from '../files/registry.js';
 import { TaskState } from '../state/task-state.js';
 import { AuditLog, redactAction } from '../state/audit-log.js';
 import { withTimeout, TimeoutError } from '../util/timeout.js';
@@ -28,7 +31,10 @@ export const FAILURE = Object.freeze({
   PLANNER_FAILED: 'planner_failed',
   BROWSER_FAILED: 'browser_failed',
   OBJECTIVE_NOT_ACHIEVED: 'objective_not_achieved',
+  INVALID_FILE: 'invalid_file',
 });
+
+const ORDER = { GREEN: 0, AMBER: 1, RED: 2 };
 
 export class Operator {
   /**
@@ -41,13 +47,19 @@ export class Operator {
    * @param {object} [opts.limits]                  Overrides for DEFAULT_LIMITS.
    * @param {string|null} [opts.auditDir]           JSONL audit directory, null for memory only.
    * @param {string} [opts.startUrl]                Page to open before the first step.
+   * @param {string[]} [opts.files]                 Paths the user explicitly allows upload_file to use.
+   * @param {string[]|null} [opts.managedUploadDirs] Folders whose top-level files are offered for upload
+   *   (default: the profile's `.dalexio/uploads/<profile>`; null disables).
    * @param {(event: object) => void} [opts.onEvent] Progress callback.
    */
-  constructor({ planner, controller, browserOptions, gate, policy, limits, auditDir = '.dalexio/runs', startUrl, onEvent } = {}) {
+  constructor({ planner, controller, browserOptions, gate, policy, limits, auditDir = '.dalexio/runs', startUrl, files = [], managedUploadDirs, onEvent } = {}) {
     this.planner = assertPlanner(planner);
     this.ownsController = !controller;
     this.controller = controller ?? new BrowserController(browserOptions);
-    this.executor = new BrowserExecutor(this.controller);
+    this.files = new FileRegistry({ root: this.controller.options.stateRoot });
+    this.userFiles = [...files];
+    this.managedUploadDirs = managedUploadDirs === undefined ? [defaultUploadsDir(this.controller)] : managedUploadDirs ?? [];
+    this.executor = new BrowserExecutor(this.controller, { files: this.files });
     this.gate = gate ?? new ApprovalGate();
     this.policy = policy ?? {};
     this.limits = { ...DEFAULT_LIMITS, ...limits };
@@ -83,7 +95,26 @@ export class Operator {
       return consecutiveErrors >= this.limits.maxConsecutiveErrors;
     };
 
-    await emit('task_start', { objective: task.objective, planner: this.planner.name, limits: this.limits });
+    await emit('task_start', {
+      objective: task.objective,
+      planner: this.planner.name,
+      profile: this.controller.profile ?? null,
+      limits: this.limits,
+    });
+
+    // Upload sources are fixed before the browser starts; the planner can
+    // never add to them.
+    try {
+      for (const f of this.userFiles) await this.files.addUserFile(f);
+      for (const dir of this.managedUploadDirs) await this.files.addManagedDir(dir);
+    } catch (err) {
+      const failed = await this._finish(task, emit, FAILURE.INVALID_FILE, err.message);
+      await audit.write('browser_closed', { taskId: task.id, owned: this.ownsController, launched: false });
+      return failed;
+    }
+    if (this.files.list().length) await emit('files_available', { files: this.files.list().map(({ id, name, bytes, source }) => ({ id, name, bytes, source })) });
+
+    let reading = null; // most recent read_page / read_ref result, shown to the planner
 
     try {
       if (this.ownsController || !this.controller.isLaunched) await bounded(this.controller.launch(), this.limits.actionTimeoutMs * 2, 'browser launch');
@@ -100,6 +131,8 @@ export class Operator {
           history: task.history.map(plannerHistoryView),
           step: task.step,
           maxSteps: this.limits.maxSteps,
+          files: this.files.list(),
+          reading,
         };
         let proposed;
         try {
@@ -150,7 +183,9 @@ export class Operator {
         const risk = classifyAction(action, observation, this.policy);
         const sensitive = Boolean(action.ref && findElement(observation, action.ref)?.sensitive);
         await emit('action_proposed', { action, sensitive, risk });
-        const decision = await this.gate.check({ ...risk, action, observation });
+        const summary = risk.level === RISK.GREEN ? null : describeAction(action, observation, risk, { files: this.files });
+        if (summary) await emit('approval_requested', { level: risk.level, summary });
+        const decision = await this.gate.check({ ...risk, action, observation, summary });
         if (!decision.approved) {
           await emit('action_denied', { action, sensitive, risk, note: decision.note });
           task.step += 1;
@@ -158,6 +193,21 @@ export class Operator {
             return this._finish(task, emit, FAILURE.TOO_MANY_ERRORS, 'too many denied or failed actions');
           }
           continue;
+        }
+
+        // 4b. An approval covers what the human saw. Re-read the page and make
+        // sure the target is still the same element and the action is not now
+        // riskier (pages change while people read prompts).
+        if (risk.level !== RISK.GREEN) {
+          const fresh = await bounded(this.executor.observe(), this.limits.actionTimeoutMs, 'observe');
+          const problem = recheckApproved(action, observation, fresh, risk, this.policy);
+          observation = fresh;
+          if (problem) {
+            await emit('action_invalidated', { action, sensitive, risk, error: problem });
+            task.step += 1;
+            if (noteError('approval_invalidated', problem, redactAction(action, sensitive))) return this._finish(task, emit, FAILURE.TOO_MANY_ERRORS, `approval invalidated: ${problem}`);
+            continue;
+          }
         }
 
         // 5. Execute.
@@ -175,12 +225,18 @@ export class Operator {
           continue;
         }
         consecutiveErrors = 0;
+        if (result.reading) {
+          reading = result.reading;
+          await emit('page_read', { url: reading.url, ref: reading.ref, chars: reading.chars ?? reading.text?.length ?? 0, find: reading.find });
+        }
+        if (result.download) await emit('file_downloaded', { ref: action.ref, download: result.download });
+        if (action.action === 'upload_file') await emit('file_uploaded', { ref: action.ref, file: result.file });
 
         // 6. Observe the result (always fresh, so refs match the next plan).
         const urlBefore = observation.url;
         observation = action.action === 'observe'
           ? result.observation
-          : action.action === 'screenshot' ? observation : await bounded(this.executor.observe(), this.limits.actionTimeoutMs, 'observe');
+          : PASSIVE.has(action.action) ? observation : await bounded(this.executor.observe(), this.limits.actionTimeoutMs, 'observe');
         task.step += 1;
         task.record({
           step: current,
@@ -225,6 +281,33 @@ export async function runOperator(objective, options) {
   return new Operator(options).run(objective);
 }
 
+// Actions that cannot change the page, so the old observation stays valid.
+const PASSIVE = new Set(['screenshot', 'read_page', 'read_ref']);
+
+function defaultUploadsDir(controller) {
+  const { stateRoot } = controller.options;
+  return controller.profilePaths?.uploadsDir ?? path.join(stateRoot, 'uploads', '_stateless');
+}
+
+/** Returns why an approved action no longer matches the page, or null. */
+export function recheckApproved(action, approvedObs, freshObs, risk, policy) {
+  try {
+    validateAction(action, { observation: freshObs });
+  } catch (err) {
+    return `page changed after approval: ${err.message}`;
+  }
+  if (action.ref) {
+    const before = findElement(approvedObs, action.ref);
+    const now = findElement(freshObs, action.ref);
+    if (!before || !now || before.kind !== now.kind || before.label !== now.label) {
+      return `target ${action.ref} changed after approval (was ${JSON.stringify(before?.label ?? null)}, now ${JSON.stringify(now?.label ?? null)})`;
+    }
+  }
+  const again = classifyAction(action, freshObs, policy);
+  if (ORDER[again.level] > ORDER[risk.level]) return `action is now ${again.level} (${again.reasons.join('; ')}); it was approved as ${risk.level}`;
+  return null;
+}
+
 function plannerHistoryView(h) {
   return { step: h.step, action: h.action, outcome: h.outcome, error: h.error, url: h.url, urlAfter: h.urlAfter };
 }
@@ -234,6 +317,19 @@ function summarizeResult(action, result) {
     case 'navigate': return `loaded ${result.url}${result.status ? ` (HTTP ${result.status})` : ''}`;
     case 'click_ref': return `clicked; now at ${result.url}`;
     case 'type_ref': return `typed ${result.chars} chars${result.submitted ? ' and submitted' : ''}`;
+    case 'select_option': return `selected ${JSON.stringify(result.selected)}`;
+    case 'set_checked': return result.checked ? 'ticked' : 'unticked';
+    case 'upload_file': return `attached ${JSON.stringify(result.file.name)} (${result.file.bytes} bytes); not submitted`;
+    case 'download_ref': {
+      const d = result.download;
+      return `downloaded ${JSON.stringify(d.filename)} (${d.mimeType}, ${d.bytes} bytes) to ${d.dir}; available as ${d.fileId}`;
+    }
+    case 'read_page': {
+      const r = result.reading;
+      if (r.find !== undefined) return `read: ${r.matches} match(es) for ${JSON.stringify(r.find)} (latest read is shown below)`;
+      return `read ${r.chars} of ${r.totalChars} chars${r.nextOffset !== null ? `; next offset ${r.nextOffset}` : '; end of page'} (latest read is shown below)`;
+    }
+    case 'read_ref': return `read ${result.reading.ref} (latest read is shown below)`;
     case 'observe': return 'observed';
     case 'screenshot': return `saved ${result.path}`;
     default: return 'ok';

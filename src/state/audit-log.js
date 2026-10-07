@@ -47,6 +47,7 @@ export function sanitize(data) {
 }
 
 export function redactAction(action, sensitive) {
+  if (action?.action === 'select_option' && sensitive) return { ...action, option: '[redacted]' };
   if (!action || action.action !== 'type_ref' || typeof action.text !== 'string') return action;
   if (sensitive) return { ...action, text: `[redacted ${action.text.length} chars]` };
   return action.text.length > 200 ? { ...action, text: `${action.text.slice(0, 200)}…` } : action;

@@ -1,18 +1,21 @@
 // Planner factory and fallback router.
 //
-// createPlanner('mock' | 'claude' | 'openai' | 'openrouter', options) builds a
-// planner by name. RouterPlanner tries planners in order and falls through to
-// the next one on infrastructure failures (auth, quota, network, refusal), but
-// never on a successfully returned action — validation is the operator's job.
+// createPlanner('mock' | 'claude' | 'claude-code' | 'openai' | 'openrouter',
+// options) builds a planner by name. RouterPlanner tries planners in order and
+// falls through to the next one on infrastructure failures (auth, quota,
+// network, timeout, refusal), but never on a successfully returned action —
+// validation is the operator's job.
 
 import { Planner, PlannerError } from './planner.js';
 import { MockPlanner } from './mock-planner.js';
 import { ClaudePlanner } from './claude-planner.js';
+import { ClaudeCodePlanner } from './claude-code-planner.js';
 import { OpenAIPlanner, OpenRouterPlanner } from './openai-planner.js';
 
 const FACTORIES = {
   mock: (o) => new MockPlanner(o),
   claude: (o) => new ClaudePlanner(o),
+  'claude-code': (o) => new ClaudeCodePlanner(o),
   openai: (o) => new OpenAIPlanner(o),
   openrouter: (o) => new OpenRouterPlanner(o),
 };
@@ -36,7 +39,7 @@ export function createPlanner(spec = 'mock', options = {}) {
   return names.length === 1 ? build(names[0]) : new RouterPlanner(names.map(build));
 }
 
-const FALLTHROUGH_CODES = new Set(['auth_error', 'quota_exhausted', 'network_error', 'api_error', 'refusal', 'missing_dependency', 'config_error']);
+const FALLTHROUGH_CODES = new Set(['auth_error', 'quota_exhausted', 'network_error', 'api_error', 'refusal', 'missing_dependency', 'config_error', 'timeout']);
 
 export class RouterPlanner extends Planner {
   constructor(planners) {

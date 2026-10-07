@@ -1,12 +1,12 @@
 # Dalexio Operator
 
-Dalexio Operator is a browser agent foundation that doesn't depend on any one model provider. A planner (a mock, Claude, OpenAI, OpenRouter, or anything you plug in) looks at a compact view of a web page and proposes **one** action at a time. Before that action reaches the browser, the operator checks it against a strict schema, classifies its risk, gets approval if needed, and runs it under timeouts and loop protection.
+Dalexio Operator is a browser agent foundation that doesn't depend on any one model provider. A planner (a mock, Claude via the API, Claude Code via your local `claude` login, OpenAI, OpenRouter, or anything you plug in) looks at a compact view of a web page and proposes **one** action at a time. Before that action reaches the browser, the operator checks it against a strict schema, classifies its risk, gets approval if needed, and runs it under timeouts and loop protection.
 
 The mock planner needs no API keys and no paid services. The model planners keep credentials outside the repository.
 
 ```bash
 npm install
-npm test                                   # 89 unit + integration tests, local fixtures only
+npm test                                   # 105 unit + integration tests, local fixtures only
 npm run operator -- "Open English Wikipedia"   # mock planner, real wikipedia.org
 ```
 
@@ -27,6 +27,7 @@ src/
     prompt.js            Shared system prompt, page rendering, tool schemas
     mock-planner.js      MockPlanner (heuristic) + ScriptedPlanner (tests)
     claude-planner.js    ClaudePlanner (Anthropic SDK, optional dependency)
+    claude-code-planner.js ClaudeCodePlanner (local `claude -p`, uses your Claude Code login)
     openai-planner.js    OpenAI / OpenRouter / any OpenAI-compatible endpoint
     router.js            createPlanner() factory + RouterPlanner fallback chain
   safety/
@@ -191,6 +192,8 @@ SMOKE_STRICT=1 npm run smoke    # treat "offline" as a failure
 npm run operator -- "Open English Wikipedia"
 npm run operator -- --start-url https://www.wikipedia.org "Search for octopus"
 npm run operator -- --planner claude,mock --max-steps 10 "Open English Wikipedia"
+npm run operator -- --planner claude-code --max-steps 10 "Open English Wikipedia"
+npm run operator -- --planner claude-code,mock --max-steps 10 "Open English Wikipedia"
 npm run operator -- --headed --json "Open English Wikipedia"
 node operator.js "Open English Wikipedia"      # original entry point still works
 ```
@@ -232,9 +235,10 @@ What the built-in planners share (`src/agents/prompt.js`):
 |---|---|---|---|
 | `MockPlanner` | `mock` | none | Default. |
 | `ClaudePlanner` | `claude` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile, resolved by the SDK | See below. |
+| `ClaudeCodePlanner` | `claude-code` | none: uses the login of the locally installed Claude Code CLI | Runs `claude -p`. See below. |
 | `OpenAIPlanner` | `openai` | `OPENAI_API_KEY` + `DALEXIO_OPENAI_MODEL` | Plain `fetch`, no dependency. `DALEXIO_OPENAI_BASE_URL` points it at any OpenAI-compatible server. |
 | `OpenRouterPlanner` | `openrouter` | `OPENROUTER_API_KEY` + `DALEXIO_OPENROUTER_MODEL` | Same implementation as `openai`, with OpenRouter's base URL. |
-| `RouterPlanner` | `a,b,c` | — | Tries planners in order. It falls through on auth, quota, network, refusal or missing-dependency errors, but never on a returned action. |
+| `RouterPlanner` | `a,b,c` | — | Tries planners in order. It falls through on auth, quota, network, timeout, refusal or missing-dependency errors, but never on a returned action or on malformed model output. |
 
 `registerPlanner(name, factory)` adds new providers to `createPlanner()` and the CLI.
 
@@ -247,11 +251,24 @@ What the built-in planners share (`src/agents/prompt.js`):
 - **Errors:** refusals, `max_tokens` truncation, auth errors and retryable API errors map to `PlannerError` codes, which the router and operator understand.
 - **Testing:** pass `{ client }` to inject any Anthropic-compatible client. The tests do this, and also run the real SDK against a captured `fetch`, so no network or key is needed.
 
+### Claude Code planner
+
+`--planner claude-code` plans each step by running the Claude Code CLI you already have installed and logged in (for example in a Codespace), so it needs no API key. It is separate from the `claude` planner above, which still uses the SDK and `ANTHROPIC_API_KEY`.
+
+- **Invocation:** `claude -p --output-format json` is started with `spawn` and an argument array (no shell). The page context goes in on stdin, never on the command line.
+- **Locked down:** the child runs with all built-in tools disabled (`--tools ""`), no MCP servers (`--strict-mcp-config`), no slash commands, no session persistence, only user settings (`--setting-sources user`), and the OS temp directory as its working directory. It can only answer with text.
+- **Credentials:** none are read or stored. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed from the child's environment so it uses the Claude Code login instead of API billing (`stripApiKeyEnv: false` turns that off).
+- **Output:** the reply must be exactly one JSON action object (one surrounding ```` ```json ```` fence is tolerated). Anything else fails closed with `bad_model_output`, which the router does not fall back from.
+- **Timeout:** 80 s per step by default (`DALEXIO_CLAUDE_CODE_TIMEOUT_MS`). On expiry the child is killed and the step fails with `timeout`, which the router does fall back from.
+- **Errors:** a missing CLI is `missing_dependency`, "not logged in" is `auth_error`, and a usage limit is `quota_exhausted`, so `claude-code,mock` falls back to the mock.
+- **Configuration:** `DALEXIO_CLAUDE_CODE_BIN` (default `claude` on `PATH`) and `DALEXIO_CLAUDE_CODE_MODEL` (default: the CLI's own model).
+- **Testing:** tests inject a fake `spawn` or a stand-in `claude` script, so they never call the real CLI or use your subscription.
+
 **Credentials are never stored in this repository.** Put them in `.env` (gitignored; see `.env.example`) or your shell or CI secret store.
 
 ## Current limitations
 
-- The live Claude and OpenAI paths are tested only against fake clients and a captured `fetch`. A run against the real APIs has not been done (it needs credentials and credits).
+- The live Claude, Claude Code and OpenAI paths are tested only against fake clients, a fake `claude` executable and a captured `fetch`. A run against the real APIs has not been done (it needs credentials and credits).
 - The live Wikipedia smoke test could not run in the cloud environment where this was built (outbound access is blocked there). It reports `SKIPPED`. Run it from Codespaces or a local machine.
 - There are no actions yet for `select`, checkboxes, scrolling, hover, keyboard shortcuts, uploads or downloads. Checkboxes can be clicked with `click_ref`.
 - Risk classification uses keywords and structure, in English only. It is deliberately conservative (it errs toward AMBER), but it cannot know what an arbitrary button really does. Treat it as a safety net, not a guarantee.
